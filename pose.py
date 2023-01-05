@@ -25,7 +25,7 @@ if not os.path.exists(W6PT_PATH):
     pose_url = 'https://github.com/WongKinYiu/yolov7/' \
                 + 'releases/download/v0.1/yolov7-w6-pose.pt'
     print('Download yolov7-w6-pose.pt ...')
-    wget.download(pose_url, '.')
+    wget.download(pose_url, YOLO_PATH)
     print('\nDone.')
 
 
