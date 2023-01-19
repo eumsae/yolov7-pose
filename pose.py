@@ -103,7 +103,7 @@ def visualize_pose(mat, estims, radius, thickness):
 
 
 class PoseEstimator():
-    def __init__(self):
+    def __init__(self, conf_thres=0.25, iou_thres=0.65):
         self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.torch_device = torch.device(self.torch_device)
 
@@ -115,8 +115,8 @@ class PoseEstimator():
 
         self.input_size = (960, 960)
         self.stride = 64
-        self.conf_thres = 0.25
-        self.iou_thres = 0.65
+        self.conf_thres = conf_thres
+        self.iou_thres = iou_thres
         self.resize_info = None
 
     def estimate(self, mat):
