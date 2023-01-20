@@ -18,6 +18,7 @@ from torchvision import transforms
 from utils.general import non_max_suppression_kpt
 from utils.plots import output_to_keypoint
 from images import resize_img_keeping_aspect_ratio
+from visualization import visualize_pose
 
 
 if not os.path.exists(W6PT_PATH):
@@ -27,79 +28,6 @@ if not os.path.exists(W6PT_PATH):
     print('Download yolov7-w6-pose.pt ...')
     wget.download(pose_url, YOLO_PATH)
     print('\nDone.')
-
-
-COLOR = {
-    'red': (255, 0, 0),
-    'green': (0, 255, 0),
-    'blue': (0, 0, 255),
-    'magenta': (255, 0, 255),
-    'white': (255, 255, 255),
-    'orange': (255, 128, 0),
-    'azure': (0, 128, 255)}
-
-KEYPOINT = {
-    0: 'nose',
-    1: 'L_eye',
-    2: 'R_eye',
-    3: 'L_ear',
-    4: 'R_ear',
-    5: 'L_shoulder',
-    6: 'R_shoulder',
-    7: 'L_elbow',
-    8: 'R_elbow',
-    9: 'L_wrist',
-    10: 'R_wrist',
-    11: 'L_hip',
-    12: 'R_hip',
-    13: 'L_knee',
-    14: 'R_knee',
-    15: 'L_ankle',
-    16: 'R_ankle'}
-
-KEYPOINT_CONNECTION = {
-    0: {1: COLOR['green'], 2: COLOR['green']},
-    1: {3: COLOR['green']},
-    2: {4: COLOR['green']},
-    3: {},
-    4: {},
-    5: {6: COLOR['magenta'], 7: COLOR['red'], 11: COLOR['magenta']},
-    6: {8: COLOR['orange'], 12: COLOR['magenta']},
-    7: {9: COLOR['red']},
-    8: {10: COLOR['orange']},
-    9: {},
-    10: {},
-    11: {12: COLOR['magenta'], 13: COLOR['blue']},
-    12: {14: COLOR['azure']},
-    13: {15: COLOR['blue']},
-    14: {16: COLOR['azure']},
-    15: {},
-    16: {}}
-
-
-def visualize_pose(mat, estims, radius, thickness):
-    """ Visualize poses and position of persons in the image.
-    Args:
-        mat(np.ndarray): image matrix
-        estims(dict): estimations of PoseEstimator
-    """
-    def draw_connections(kpts):
-        for i in range(len(kpts)):
-            connection = KEYPOINT_CONNECTION[i]
-            for j in connection.keys():
-                connection_color = connection[j]
-                cv2.line(mat, kpts[i], kpts[j], connection_color, thickness)
-
-    def draw_keypoints(kpts):
-        color = COLOR['white']
-        for kpt in kpts:
-            cv2.circle(mat, kpt, radius, color, thickness)
-
-    for estim in estims:
-        kpts = estim['kpts']
-        kpts = [kpt[:2] for kpt in kpts]
-        draw_connections(kpts)
-        draw_keypoints(kpts)
 
 
 class PoseEstimator():
@@ -119,68 +47,49 @@ class PoseEstimator():
         self.iou_thres = iou_thres
         self.resize_info = None
 
-    def estimate(self, mat):
-        mat = self._resize_img(mat)
-        tsr = self._transform_img2tensor(mat)
-        preds = self._predict(tsr)
-        estims = self._postproc(preds)
+    def estimate_pose(self, img:np.ndarray):
+        img = self._resize(img)
+        img_tensor = self._convert_to_tensor(img)
+        estims = self._estimate(img_tensor)
+        estims = self._postproc(estims)
         return estims
 
-    def estimate_with_visualization(self, mat, radius, thickness):
-        estims = self.estimate(mat)
-        visualize_pose(mat, estims, radius, thickness)
+    def estimate_pose_with_visualization(
+        self,
+        img:np.ndarray,
+        keypoint_radius:int,
+        limb_thickness:int
+    ):
+        estims = self.estimate_pose(img)
+        visualize_pose(img, estims, keypoint_radius, limb_thickness)
         return estims
 
-    def _resize_img(self, mat):
-        """ Resize the image.
-        Args:
-            mat(np.ndarray): image matrix
-        Returns:
-            resized_mat(np.ndarray): resized image matrix
-        """
+    def _resize(self, img:np.ndarray):
         resized_mat, self.resize_info = \
             resize_img_keeping_aspect_ratio(
-                mat, self.input_size, self.stride)
+                img, self.input_size, self.stride)
         return resized_mat
 
-    def _transform_img2tensor(self, mat):
-        """ Transform the image to tensor.
-        Args:
-            mat(np.ndarray): image matrix
-        Returns:
-            tsr(torch.tensor): image tensor
-        """
-        tsr = transforms.ToTensor()(mat)
-        tsr = torch.tensor(np.array([tsr.numpy()]))
+    def _convert_to_tensor(self, img:np.ndarray):
+        tensor = transforms.ToTensor()(img)
+        tensor = torch.tensor(np.array([tensor.numpy()]))
         if torch.cuda.is_available():
-            tsr = tsr.half().to(self.torch_device)
-        return tsr
+            tensor = tensor.half().to(self.torch_device)
+        return tensor
 
-    def _predict(self, tsr):
-        """ Predict poses and positions of persons in the image.
-        Args:
-            tsr(torch.tensor): image tensor
-        Returns:
-            preds(np.ndarray): predictions
-        """
+    def _estimate(self, tensor):
         with torch.no_grad():
-            preds, _ = self.torch_model(tsr)
-        preds = non_max_suppression_kpt(
-            prediction=preds,
+            estims, _ = self.torch_model(tensor)
+        estims = non_max_suppression_kpt(
+            prediction=estims,
             conf_thres=self.conf_thres,
             iou_thres=self.iou_thres,
             nc=self.torch_model.yaml['nc'],
             kpt_label=True)
-        preds = output_to_keypoint(preds)
-        return preds
+        estims = output_to_keypoint(estims)
+        return estims
 
-    def _postproc(self, preds):
-        """ Post-process the predictions of the PoseEstimator.
-        Args:
-            preds(np.ndarray): 
-        Returns:
-            estims(list):
-        """
+    def _postproc(self, estims):
         resize_factors = self.resize_info['resize_factors']
         diff_origin = self.resize_info['diff_origin']
 
@@ -196,12 +105,13 @@ class PoseEstimator():
             return p1, p2
 
         estims = []
-        for pred in preds:
-            cx, cy, w, h = pred[2:6].tolist()  # bounding box
+        for pred in estims:
+            # bounding-box
+            cx, cy, w, h = pred[2:6].tolist()
             p1, p2 = cxcywh2pp(cx, cy, w, h)
             bbox = restore(p1), restore(p2)
-
-            kpts = pred[7:].T.reshape(-1, 3).tolist()  # keypoints
+            # keypoints
+            kpts = pred[7:].T.reshape(-1, 3).tolist()
             for i in range(len(kpts)):
                 kpts[i][0], kpts[i][1] = restore((kpts[i][0], kpts[i][1]))
 
@@ -211,9 +121,9 @@ class PoseEstimator():
 
 
 if __name__ == '__main__':
-    mat = cv2.imread('sample.png')
-    mat = cv2.cvtColor(mat, cv2.COLOR_BGR2RGB)
+    img = cv2.imread('sample.png')
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     estimator = PoseEstimator()
-    _ = estimator.estimate_with_visualization(mat, 1, 2)
-    mat = cv2.cvtColor(mat, cv2.COLOR_RGB2BGR)
-    cv2.imwrite('sample_out.png', mat)
+    _ = estimator.estimate_pose_with_visualization(img, 1, 2)
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    cv2.imwrite('sample_out.png', img)

@@ -1,5 +1,3 @@
-# Author: Seunghyun Kim
-
 import cv2
 import numpy as np
 
