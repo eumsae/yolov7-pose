@@ -30,6 +30,9 @@ class PoseEstimator():
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
 
+        self.resize_factors = (1.0, 1.0)
+        self.diff_origin = (0, 0)
+
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(self.device)
 
@@ -40,17 +43,8 @@ class PoseEstimator():
             self.model.half().to(self.device)
     
     def estimate(self, mat):
-        """ Estimate pose.
-        Args:
-            mat(np.ndarray): image matrix
-        Returns:
-            ...
-        """
-        mat, _ = resize_keeping_aspect_ratio(mat, self.dst_size, self.stride)
-
-        cv2.imshow("", mat)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        mat, info = resize_keeping_aspect_ratio(mat, self.dst_size, self.stride)
+        self.resize_factors, self.diff_origin = info
 
         tsr = transforms.ToTensor()(mat)
         tsr = torch.tensor(np.array([tsr.numpy()]))
@@ -69,23 +63,28 @@ class PoseEstimator():
         
         preds = []
         for output in outputs:
-            xywh = output[2:6].tolist()  # bounding box, len:4
-            kpts = output[7:].tolist()  # keypoints, len: 51(17*3)
+            x, y, w, h = output[2:6]
+            x_min, y_min = self._restore_coord(x - w / 2, y - h / 2)
+            x_max, y_max = self._restore_coord(x + w / 2, y + h / 2)
+            xyxy = [x_min, y_min, x_max, y_max]
 
-            pred = xywh + kpts  # len: 55(4+51)
+            pose = output[7:].reshape(-1, 3)
+            for i, (x, y) in enumerate(pose[:, :2]):
+                pose[i, :2] = self._restore_coord(x, y)
+            pose = pose.reshape(-1).tolist()
+
+            pred = xyxy + pose
             preds.append(pred)
-        
         return preds
+    
+    
+    def _restore_coord(self, x, y):
+        x = (x - self.diff_origin[0]) / self.resize_factors[0]
+        y = (y - self.diff_origin[1]) / self.resize_factors[1]
+        return x, y
 
 
 def fit_size_to_stride(src_size, stride):
-    """ Fit the src size to multiple of the stride.
-    Args:
-        src_size(list-like, [int, int]): width, height
-        stride(int):
-    Returns:
-        dst_size(tuple, (int, int)): width, height
-    """
     def fit(x):
         if x % stride:
             x = x - (x % stride) + stride
@@ -99,13 +98,6 @@ def fit_size_to_stride(src_size, stride):
 
 
 def calc_resize_factors(src_size, dst_size):
-    """ Calculate resize factors.
-    Args:
-        src_size(list-like, [int, int]): width, height
-        dst_size(list-like, [int, int]): width, height
-    Returns:
-        resize_factors(tuple, (float, float)):
-    """
     w1, h1 = src_size
     w2, h2 = dst_size
 
@@ -118,15 +110,6 @@ def calc_resize_factors(src_size, dst_size):
 
 
 def calc_gap(src_size, dst_size):
-    """ Calculate the gap.
-    Args:
-        src_size(list-like, [int, int]): width, height
-        dst_size(list-like, [int, int]): width, height
-    Returns:
-        gap(tuple, (int, int, int, int)): top, bottom, left, right
-    Raise:
-        ValueError
-    """
     w1, h1 = src_size
     w2, h2 = dst_size
     if w1 > w2 or h1 > h2:
@@ -148,14 +131,6 @@ def calc_gap(src_size, dst_size):
 
 
 def add_border(mat, thickness, rgb=(0,0,0)):
-    """ Add border to the image.
-    Args:
-        mat(np.ndarray): image matrix
-        thickness(list-like, [int, int, int, int]): top, bottom, left, right
-        rgb(list-like, [int, int, int]):
-    Returns:
-        bordered_mat(np.ndarray): bordered image matrix
-    """
     border_type = cv2.BORDER_CONSTANT
     top, bottom, left, right = thickness
 
@@ -168,13 +143,6 @@ def add_border(mat, thickness, rgb=(0,0,0)):
 
 
 def resize(mat, resize_factors):
-    """ Resize the image with factors.
-    Args:
-        mat(np.ndarray): image matrix
-        resize_factors(list-like, [float, float]):
-    Returns:
-        resized_mat(np.ndarray):
-    """
     src_size = np.array(mat.shape[:2][::-1])
     dst_size = np.round(src_size * resize_factors).astype(int)
 
@@ -184,15 +152,6 @@ def resize(mat, resize_factors):
 
 
 def resize_keeping_aspect_ratio(mat, dst_size, stride=None):
-    """ Resize the image to the dst size with keeping aspect ratio.
-    Args:
-        mat(np.ndarray): image matrix
-        dst_size(list-like, [int, int]): width, height
-        stride(int):
-    Returns:
-        resized_mat(np.ndarray): resized image matrix
-        resize_info(dict):
-    """
     if stride is not None:
         dst_size = fit_size_to_stride(dst_size, stride)
 
@@ -205,26 +164,19 @@ def resize_keeping_aspect_ratio(mat, dst_size, stride=None):
     gap = calc_gap(src_size, dst_size)
     diff_origin = gap[2], gap[0]  # (top, left)
     resized_mat = add_border(resized_mat, gap)
-    resize_info = {
-        "resize_factors": resize_factors,
-        "diff_origin": diff_origin}
 
-    return resized_mat, resize_info
+    return resized_mat, (resize_factors, diff_origin)
 
 
 if __name__ == "__main__":
     from glob import glob
+    from utils.visualization import visualize_pose
+
     samples = glob("./samples/sample_*.jpg")
-    sample_mat = cv2.imread(samples[0])
+    sample_mat = cv2.imread(samples[9])
 
     conf_thres = 0.25
     estimator = PoseEstimator(conf_thres=conf_thres)
     preds = estimator.estimate(sample_mat)
-    
-    for pred in preds:
-        xywh = pred[:4]
-        print(f"xywh: {xywh}")
 
-        kpts = pred[4:]
-        kpts = np.array(kpts).reshape(-1, 3)
-        print(f"kpts: {kpts}")
+    visualize_pose(sample_mat, preds)
