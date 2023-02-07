@@ -24,7 +24,7 @@ if not os.path.exists(W6PT_PATH):
 
 
 class PoseEstimator():
-    def __init__(self, dst_size=(960, 960), stride=64, conf_thres=0.25, iou_thres=0.65):
+    def __init__(self, dst_size=(960, 540), stride=64, conf_thres=0.25, iou_thres=0.65):
         self.dst_size = dst_size
         self.stride = stride
         self.conf_thres = conf_thres
@@ -47,6 +47,11 @@ class PoseEstimator():
             ...
         """
         mat, _ = resize_keeping_aspect_ratio(mat, self.dst_size, self.stride)
+
+        cv2.imshow("", mat)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
         tsr = transforms.ToTensor()(mat)
         tsr = torch.tensor(np.array([tsr.numpy()]))
         if torch.cuda.is_available():
@@ -60,6 +65,7 @@ class PoseEstimator():
             iou_thres=self.iou_thres,
             nc=self.model.yaml["nc"],  # num classes
             kpt_label=True)
+        outputs = output_to_keypoint(outputs)
         
         preds = []
         for output in outputs:
@@ -204,3 +210,21 @@ def resize_keeping_aspect_ratio(mat, dst_size, stride=None):
         "diff_origin": diff_origin}
 
     return resized_mat, resize_info
+
+
+if __name__ == "__main__":
+    from glob import glob
+    samples = glob("./samples/sample_*.jpg")
+    sample_mat = cv2.imread(samples[0])
+
+    conf_thres = 0.25
+    estimator = PoseEstimator(conf_thres=conf_thres)
+    preds = estimator.estimate(sample_mat)
+    
+    for pred in preds:
+        xywh = pred[:4]
+        print(f"xywh: {xywh}")
+
+        kpts = pred[4:]
+        kpts = np.array(kpts).reshape(-1, 3)
+        print(f"kpts: {kpts}")
