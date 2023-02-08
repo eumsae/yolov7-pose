@@ -75,7 +75,3 @@ def visualize_pose(mat, preds):
         kpts = np.array(pose).reshape(-1, 3)[:, :2].astype(int)
         draw_edge(kpts)
         draw_node(kpts)
-    
-    cv2.imshow("dst", mat)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
