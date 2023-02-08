@@ -74,9 +74,13 @@ def visualize_pose(mat, preds):
             cv2.circle(mat, kpt, radius, color, -1)
 
     for pred in preds:
-        x0, y0, x1, y1 = np.array(pred[:4], dtype=int)
-        pose = pred[4:]
-        kpts = np.array(pose).reshape(-1, 3)[:, :2].astype(int)
-        draw_bbox((x0, y0), (x1, y1))
+        x_min, y_min, x_max, y_max = np.array(pred[:4], dtype=int)
+        bbox_conf = pred[4]
+
+        kpts = np.array(pred[5:]).reshape(-1, 3)
+        kpts_conf = kpts[:, 2]
+        kpts = kpts[:, :2].astype(int)
+
+        draw_bbox((x_min, y_min), (x_max, y_max))
         draw_edge(kpts)
         draw_node(kpts)

@@ -64,17 +64,19 @@ class PoseEstimator():
         
         preds = []
         for output in outputs:
-            x, y, w, h = output[2:6]
+            # bounding box
+            x, y, w, h, score = output[2:7]
             x_min, y_min = self._restore_coord(x - w / 2, y - h / 2)
             x_max, y_max = self._restore_coord(x + w / 2, y + h / 2)
-            xyxy = [x_min, y_min, x_max, y_max]
+            bbox = [x_min, y_min, x_max, y_max, score]  # len: 5
 
-            pose = output[7:].reshape(-1, 3)
-            for i, (x, y) in enumerate(pose[:, :2]):
-                pose[i, :2] = self._restore_coord(x, y)
-            pose = pose.reshape(-1).tolist()
+            # keypoints
+            kpts = output[7:].reshape(-1, 3)
+            for i, (x, y) in enumerate(kpts[:, :2]):
+                kpts[i, :2] = self._restore_coord(x, y)
+            kpts = kpts.reshape(-1).tolist()  # len: 51 (17 keypoints * 3 columns(x, y, conf))
 
-            pred = xyxy + pose
+            pred = bbox + kpts  # total len: 56
             preds.append(pred)
         return preds
     
