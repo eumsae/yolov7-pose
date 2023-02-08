@@ -65,10 +65,10 @@ class PoseEstimator():
         preds = []
         for output in outputs:
             # bounding box
-            x, y, w, h, score = output[2:7]
+            x, y, w, h, conf = output[2:7]
             x_min, y_min = self._restore_coord(x - w / 2, y - h / 2)
             x_max, y_max = self._restore_coord(x + w / 2, y + h / 2)
-            bbox = [x_min, y_min, x_max, y_max, score]  # len: 5
+            bbox = [x_min, y_min, x_max, y_max, conf]  # len: 5
 
             # keypoints
             kpts = output[7:].reshape(-1, 3)
