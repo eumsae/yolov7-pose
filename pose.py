@@ -1,195 +1,187 @@
-# Author: Seunghyun Kim
-
 import os
 import sys
 from pathlib import Path
 
-
-YOLO_PATH = str(Path(__file__).absolute().parents[0])
-W6PT_PATH = os.path.join(YOLO_PATH, 'yolov7-w6-pose.pt')
-sys.path.append(YOLO_PATH)
-
-
 import cv2
 import numpy as np
 import torch
-from torchvision import transforms
+import torchvision.transforms as transforms
+
+YOLO_PATH = Path(__file__).absolute().parents[0]
+W6PT_PATH = YOLO_PATH / "yolov7-w6-pose.pt"
+sys.path.append(YOLO_PATH)
 
 from utils.general import non_max_suppression_kpt
 from utils.plots import output_to_keypoint
-from images import resize_img_keeping_aspect_ratio
-
 
 if not os.path.exists(W6PT_PATH):
     import wget
-    pose_url = 'https://github.com/WongKinYiu/yolov7/' \
-                + 'releases/download/v0.1/yolov7-w6-pose.pt'
-    print('Download yolov7-w6-pose.pt ...')
-    wget.download(pose_url, YOLO_PATH)
-    print('\nDone.')
-
-
-COLOR = {
-    'red': (255, 0, 0),
-    'green': (0, 255, 0),
-    'blue': (0, 0, 255),
-    'magenta': (255, 0, 255),
-    'white': (255, 255, 255),
-    'orange': (255, 128, 0),
-    'azure': (0, 128, 255)}
-
-KEYPOINT = {
-    0: 'nose',
-    1: 'L_eye',
-    2: 'R_eye',
-    3: 'L_ear',
-    4: 'R_ear',
-    5: 'L_shoulder',
-    6: 'R_shoulder',
-    7: 'L_elbow',
-    8: 'R_elbow',
-    9: 'L_wrist',
-    10: 'R_wrist',
-    11: 'L_hip',
-    12: 'R_hip',
-    13: 'L_knee',
-    14: 'R_knee',
-    15: 'L_ankle',
-    16: 'R_ankle'}
-
-KEYPOINT_CONNECTION = {
-    0: {1: COLOR['green'], 2: COLOR['green']},
-    1: {3: COLOR['green']},
-    2: {4: COLOR['green']},
-    3: {},
-    4: {},
-    5: {6: COLOR['magenta'], 7: COLOR['red'], 11: COLOR['magenta']},
-    6: {8: COLOR['orange'], 12: COLOR['magenta']},
-    7: {9: COLOR['red']},
-    8: {10: COLOR['orange']},
-    9: {},
-    10: {},
-    11: {12: COLOR['magenta'], 13: COLOR['blue']},
-    12: {14: COLOR['azure']},
-    13: {15: COLOR['blue']},
-    14: {16: COLOR['azure']},
-    15: {},
-    16: {}}
-
-
-def visualize_pose(mat, estims, radius, thickness):
-    """ Visualize poses and position of persons in the image.
-    Args:
-        mat(np.ndarray): image matrix
-        estims(dict): estimations of PoseEstimator
-    """
-    def draw_connections(kpts):
-        for i in range(len(kpts)):
-            connection = KEYPOINT_CONNECTION[i]
-            for j in connection.keys():
-                connection_color = connection[j]
-                cv2.line(mat, kpts[i], kpts[j], connection_color, thickness)
-
-    def draw_keypoints(kpts):
-        color = COLOR['white']
-        for kpt in kpts:
-            cv2.circle(mat, kpt, radius, color, thickness)
-
-    for estim in estims:
-        kpts = estim['kpts']
-        kpts = [kpt[:2] for kpt in kpts]
-        draw_connections(kpts)
-        draw_keypoints(kpts)
+    w6_pose_url = "https://github.com/WongKinYiu/yolov7/" \
+                + "releases/download/v0.1/yolov7-w6-pose.pt"
+    print("Download yolov7-w6-pose.pt ...")
+    wget.download(w6_pose_url, str(YOLO_PATH))
+    print("\nDone.")
 
 
 class PoseEstimator():
-    def __init__(self):
-        self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.torch_device = torch.device(self.torch_device)
+    def __init__(self, stride=64, conf_thres=0.25, iou_thres=0.65):
+        #self.dst_size = dst_size
+        self.stride = stride
+        self.conf_thres = conf_thres
+        self.iou_thres = iou_thres
 
-        weights = torch.load(W6PT_PATH, self.torch_device)
-        self.torch_model = weights['model']
-        self.torch_model.float().eval()
+        self.resize_factors = (1.0, 1.0)
+        self.diff_origin = (0, 0)
+
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = torch.device(self.device)
+
+        weights = torch.load(W6PT_PATH, map_location=self.device)
+        self.model = weights["model"]
+        self.model.float().eval()
         if torch.cuda.is_available():
-            self.torch_model.half().to(self.torch_device)
-
-        self.input_size = (960, 960)
-        self.stride = 64
-        self.conf_thres = 0.25
-        self.iou_thres = 0.65
-        self.resize_info = None
-
+            self.model.half().to(self.device)
+    
     def estimate(self, mat):
-        mat = self._resize_img(mat)
-        tsr = self._transform_img2tensor(mat)
-        preds = self._predict(tsr)
-        estims = self._postproc(preds)
-        return estims
+        mat, info = resize_keeping_aspect_ratio(mat, mat.shape[:2][::-1], self.stride)
+        #mat, info = resize_keeping_aspect_ratio(mat, self.dst_size, self.stride)
+        self.resize_factors, self.diff_origin = info
 
-    def estimate_with_visualization(self, mat, radius, thickness):
-        estims = self.estimate(mat)
-        visualize_pose(mat, estims, radius, thickness)
-        return estims
-
-    def _resize_img(self, mat):
-        resized_mat, self.resize_info = \
-            resize_img_keeping_aspect_ratio(
-                mat, self.input_size, self.stride)
-        return resized_mat
-
-    def _transform_img2tensor(self, mat):
         tsr = transforms.ToTensor()(mat)
         tsr = torch.tensor(np.array([tsr.numpy()]))
         if torch.cuda.is_available():
-            tsr = tsr.half().to(self.torch_device)
-        return tsr
-
-    def _predict(self, tsr):
+            tsr = tsr.half().to(self.device)
+        
         with torch.no_grad():
-            preds, _ = self.torch_model(tsr)
-        preds = non_max_suppression_kpt(
-            prediction=preds,
+            outputs, _ = self.model(tsr)
+        outputs = non_max_suppression_kpt(
+            prediction=outputs,
             conf_thres=self.conf_thres,
             iou_thres=self.iou_thres,
-            nc=self.torch_model.yaml['nc'],
+            nc=self.model.yaml["nc"],  # num classes
             kpt_label=True)
-        preds = output_to_keypoint(preds)
+        outputs = output_to_keypoint(outputs)
+        
+        preds = []
+        for output in outputs:
+            x, y, w, h = output[2:6]
+            x_min, y_min = self._restore_coord(x - w / 2, y - h / 2)
+            x_max, y_max = self._restore_coord(x + w / 2, y + h / 2)
+            xyxy = [x_min, y_min, x_max, y_max]
+
+            pose = output[7:].reshape(-1, 3)
+            for i, (x, y) in enumerate(pose[:, :2]):
+                pose[i, :2] = self._restore_coord(x, y)
+            pose = pose.reshape(-1).tolist()
+
+            pred = xyxy + pose
+            preds.append(pred)
         return preds
-
-    def _postproc(self, preds):
-        resize_factors = self.resize_info['resize_factors']
-        diff_origin = self.resize_info['diff_origin']
-
-        def restore(p):
-            x, y = p  # point
-            x = int(round((x - diff_origin[0]) / resize_factors[0]))
-            y = int(round((y - diff_origin[1]) / resize_factors[1]))
-            return x, y
-
-        def cxcywh2pp(cx, cy, w, h):
-            p1 = int(round(cx - w / 2)), int(round(cy - h / 2))
-            p2 = int(round(cx + w / 2)), int(round(cy + h / 2))
-            return p1, p2
-
-        estims = []
-        for pred in preds:
-            cx, cy, w, h = pred[2:6].tolist()  # bounding box
-            p1, p2 = cxcywh2pp(cx, cy, w, h)
-            bbox = restore(p1), restore(p2)
-
-            kpts = pred[7:].T.reshape(-1, 3).tolist()  # keypoints
-            for i in range(len(kpts)):
-                kpts[i][0], kpts[i][1] = restore((kpts[i][0], kpts[i][1]))
-
-            estim = {'bbox': bbox, 'kpts': kpts}
-            estims.append(estim)
-        return estims
+    
+    
+    def _restore_coord(self, x, y):
+        x = (x - self.diff_origin[0]) / self.resize_factors[0]
+        y = (y - self.diff_origin[1]) / self.resize_factors[1]
+        return x, y
 
 
-if __name__ == '__main__':
-    mat = cv2.imread('sample.png')
-    mat = cv2.cvtColor(mat, cv2.COLOR_BGR2RGB)
-    estimator = PoseEstimator()
-    _ = estimator.estimate_with_visualization(mat, 1, 2)
-    mat = cv2.cvtColor(mat, cv2.COLOR_RGB2BGR)
-    cv2.imwrite('sample_out.png', mat)
+def fit_size_to_stride(src_size, stride):
+    def fit(x):
+        if x % stride:
+            x = x - (x % stride) + stride
+        return x
+    
+    width, height = src_size
+
+    dst_size = fit(width), fit(height)
+
+    return dst_size
+
+
+def calc_resize_factors(src_size, dst_size):
+    w1, h1 = src_size
+    w2, h2 = dst_size
+
+    rw = w2 / w1  # ratio
+    rh = h2 / h1
+
+    resize_factors = rw, rh
+
+    return resize_factors
+
+
+def calc_gap(src_size, dst_size):
+    w1, h1 = src_size
+    w2, h2 = dst_size
+    if w1 > w2 or h1 > h2:
+        msg = "Width and height of the dst size must be " \
+            + "greater than that of the src size."
+        raise ValueError(msg)
+    
+    half_w = (w2 - w1) / 2
+    half_h = (h2 - h1) / 2
+
+    top = int(round(half_h - 0.1))
+    bottom = int(round(half_h + 0.1))
+    left = int(round(half_w - 0.1))
+    right = int(round(half_w + 0.1))
+
+    gap = top, bottom, left, right
+
+    return gap
+
+
+def add_border(mat, thickness, rgb=(0,0,0)):
+    border_type = cv2.BORDER_CONSTANT
+    top, bottom, left, right = thickness
+
+    bordered_mat = cv2.copyMakeBorder(
+        mat,
+        top, bottom, left, right,
+        border_type, value=rgb,)
+
+    return bordered_mat
+
+
+def resize(mat, resize_factors):
+    src_size = np.array(mat.shape[:2][::-1])
+    dst_size = np.round(src_size * resize_factors).astype(int)
+
+    resized_mat = cv2.resize(mat, dst_size)
+
+    return resized_mat
+
+
+def resize_keeping_aspect_ratio(mat, dst_size, stride=None):
+    if stride is not None:
+        dst_size = fit_size_to_stride(dst_size, stride)
+
+    src_size = mat.shape[:2][::-1]  # (width, height)
+    resize_factors = calc_resize_factors(src_size, dst_size)
+    resize_factors = (min(resize_factors),) * 2  # (min, min)
+    resized_mat = resize(mat, resize_factors)
+    
+    src_size = resized_mat.shape[:2][::-1]  # (width, height)
+    gap = calc_gap(src_size, dst_size)
+    diff_origin = gap[2], gap[0]  # (top, left)
+    resized_mat = add_border(resized_mat, gap)
+
+    return resized_mat, (resize_factors, diff_origin)
+
+
+if __name__ == "__main__":
+    from glob import glob
+    from utils.visualization import visualize_pose
+
+    samples = glob("./samples/sample_*.jpg")
+    sample_mat = cv2.imread(samples[4])
+
+    conf_thres = 0.25
+    estimator = PoseEstimator(conf_thres=conf_thres)
+    preds = estimator.estimate(sample_mat)
+
+    visualize_pose(sample_mat, preds)
+
+    cv2.imshow("result", sample_mat)
+    cv2.waitKey()
+    cv2.destroyAllWindows()
