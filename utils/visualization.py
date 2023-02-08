@@ -57,10 +57,9 @@ def visualize_pose(mat, preds):
     radius = max(int(min(mat_size) * 0.005), 1)
     thickness = max(int(radius * 0.5), 1)
 
-    def draw_node(kpts):
-        color = COLOR_MAP["white"]
-        for kpt in kpts:
-            cv2.circle(mat, kpt, radius, color, -1)
+    def draw_bbox(pt1, pt2):
+        color = COLOR_MAP["green"]
+        cv2.rectangle(mat, pt1, pt2, color, thickness)
     
     def draw_edge(kpts):
         for i in range(len(kpts)):
@@ -69,9 +68,15 @@ def visualize_pose(mat, preds):
                 color = adjacency[j]
                 cv2.line(mat, kpts[i], kpts[j], color, thickness)
 
+    def draw_node(kpts):
+        color = COLOR_MAP["white"]
+        for kpt in kpts:
+            cv2.circle(mat, kpt, radius, color, -1)
+
     for pred in preds:
-        #xywh = pred[:4]
+        x0, y0, x1, y1 = np.array(pred[:4], dtype=int)
         pose = pred[4:]
         kpts = np.array(pose).reshape(-1, 3)[:, :2].astype(int)
+        draw_bbox((x0, y0), (x1, y1))
         draw_edge(kpts)
         draw_node(kpts)

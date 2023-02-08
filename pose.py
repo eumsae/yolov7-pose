@@ -170,18 +170,23 @@ def resize_keeping_aspect_ratio(mat, dst_size, stride=None):
 
 
 if __name__ == "__main__":
-    from glob import glob
     from utils.visualization import visualize_pose
-
-    samples = glob("./samples/sample_*.jpg")
-    sample_mat = cv2.imread(samples[4])
 
     conf_thres = 0.25
     estimator = PoseEstimator(conf_thres=conf_thres)
-    preds = estimator.estimate(sample_mat)
 
-    visualize_pose(sample_mat, preds)
+    video = "./samples/pedestrians.mp4"
+    assert os.path.exists(video), "Not exists the video.mp4"
 
-    cv2.imshow("result", sample_mat)
-    cv2.waitKey()
+    cap = cv2.VideoCapture(video)
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame, _ = resize_keeping_aspect_ratio(frame, (960, 540), 64)
+        visualize_pose(frame, estimator.estimate(frame))
+        cv2.imshow("res", frame)
+        if cv2.waitKey(1) == ord('q'):
+            break
+    cap.release()
     cv2.destroyAllWindows()
