@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torchvision.transforms as transforms
 
-YOLO_PATH = Path(__file__).absolute().parents[0]
+YOLO_PATH = Path(__file__).absolute().parents[1]
 W6PT_PATH = YOLO_PATH / "yolov7-w6-pose.pt"
 sys.path.append(YOLO_PATH)
 
@@ -24,8 +24,8 @@ if not os.path.exists(W6PT_PATH):
 
 
 class PoseEstimator():
-    def __init__(self, stride=64, conf_thres=0.25, iou_thres=0.65):
-        #self.dst_size = dst_size
+    def __init__(self, dst_size=(960, 540), stride=64, conf_thres=0.25, iou_thres=0.65):
+        self.dst_size = dst_size
         self.stride = stride
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
@@ -43,8 +43,8 @@ class PoseEstimator():
             self.model.half().to(self.device)
     
     def estimate(self, mat):
-        mat, info = resize_keeping_aspect_ratio(mat, mat.shape[:2][::-1], self.stride)
-        #mat, info = resize_keeping_aspect_ratio(mat, self.dst_size, self.stride)
+        #mat, info = resize_keeping_aspect_ratio(mat, mat.shape[:2][::-1], self.stride)
+        mat, info = resize_keeping_aspect_ratio(mat, self.dst_size, self.stride)
         self.resize_factors, self.diff_origin = info
 
         tsr = transforms.ToTensor()(mat)
@@ -169,26 +169,3 @@ def resize_keeping_aspect_ratio(mat, dst_size, stride=None):
     resized_mat = add_border(resized_mat, gap)
 
     return resized_mat, (resize_factors, diff_origin)
-
-
-if __name__ == "__main__":
-    from utils.visualization import visualize_pose
-
-    conf_thres = 0.25
-    estimator = PoseEstimator(conf_thres=conf_thres)
-
-    video = "./samples/pedestrians.mp4"
-    assert os.path.exists(video), "Not exists the video.mp4"
-
-    cap = cv2.VideoCapture(video)
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frame, _ = resize_keeping_aspect_ratio(frame, (960, 540), 64)
-        visualize_pose(frame, estimator.estimate(frame))
-        cv2.imshow("res", frame)
-        if cv2.waitKey(1) == ord('q'):
-            break
-    cap.release()
-    cv2.destroyAllWindows()

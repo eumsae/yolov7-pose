@@ -57,30 +57,33 @@ def visualize_pose(mat, preds):
     radius = max(int(min(mat_size) * 0.005), 1)
     thickness = max(int(radius * 0.5), 1)
 
-    def draw_bbox(pt1, pt2):
-        color = COLOR_MAP["green"]
-        cv2.rectangle(mat, pt1, pt2, color, thickness)
-    
-    def draw_edge(kpts):
-        for i in range(len(kpts)):
-            adjacency = KEYPOINT_CONNECTION_MAP[i]
-            for j in adjacency.keys():
-                color = adjacency[j]
-                cv2.line(mat, kpts[i], kpts[j], color, thickness)
-
-    def draw_node(kpts):
-        color = COLOR_MAP["white"]
-        for kpt in kpts:
-            cv2.circle(mat, kpt, radius, color, -1)
-
     for pred in preds:
         x_min, y_min, x_max, y_max = np.array(pred[:4], dtype=int)
-        bbox_conf = pred[4]
+        #bbox_conf = pred[4]
 
         kpts = np.array(pred[5:]).reshape(-1, 3)
-        kpts_conf = kpts[:, 2]
+        #kpts_conf = kpts[:, 2]
         kpts = kpts[:, :2].astype(int)
 
-        draw_bbox((x_min, y_min), (x_max, y_max))
-        draw_edge(kpts)
-        draw_node(kpts)
+        draw_bbox(mat, (x_min, y_min), (x_max, y_max), thickness)
+        draw_edge(mat, kpts, thickness)
+        draw_node(mat, kpts, radius)
+
+
+def draw_bbox(mat, pt1, pt2, thickness):
+    color = COLOR_MAP["green"]
+    cv2.rectangle(mat, pt1, pt2, color, thickness)
+
+
+def draw_edge(mat, kpts, thickness):
+    for i in range(len(kpts)):
+        adjacency = KEYPOINT_CONNECTION_MAP[i]
+        for j in adjacency.keys():
+            color = adjacency[j]
+            cv2.line(mat, kpts[i], kpts[j], color, thickness)
+
+
+def draw_node(mat, kpts, radius):
+    color = COLOR_MAP["white"]
+    for kpt in kpts:
+        cv2.circle(mat, kpt, radius, color, -1)
