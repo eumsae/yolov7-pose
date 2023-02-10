@@ -23,54 +23,6 @@ if not os.path.exists(W6PT_PATH):
     print("\nDone.")
 
 
-COLORS = {
-    'red': (255, 0, 0),
-    'green': (0, 255, 0),
-    'blue': (0, 0, 255),
-    'magenta': (255, 0, 255),
-    'white': (255, 255, 255),
-    'orange': (255, 128, 0),
-    'azure': (0, 128, 255)}
-
-NODES = {
-    0: 'nose',
-    1: 'L_eye',
-    2: 'R_eye',
-    3: 'L_ear',
-    4: 'R_ear',
-    5: 'L_shoulder',
-    6: 'R_shoulder',
-    7: 'L_elbow',
-    8: 'R_elbow',
-    9: 'L_wrist',
-    10: 'R_wrist',
-    11: 'L_hip',
-    12: 'R_hip',
-    13: 'L_knee',
-    14: 'R_knee',
-    15: 'L_ankle',
-    16: 'R_ankle'}
-
-EDGES = {
-    0: {1: COLORS['green'], 2: COLORS['green']},
-    1: {3: COLORS['green']},
-    2: {4: COLORS['green']},
-    3: {},
-    4: {},
-    5: {6: COLORS['magenta'], 7: COLORS['red'], 11: COLORS['magenta']},
-    6: {8: COLORS['orange'], 12: COLORS['magenta']},
-    7: {9: COLORS['red']},
-    8: {10: COLORS['orange']},
-    9: {},
-    10: {},
-    11: {12: COLORS['magenta'], 13: COLORS['blue']},
-    12: {14: COLORS['azure']},
-    13: {15: COLORS['blue']},
-    14: {16: COLORS['azure']},
-    15: {},
-    16: {}}
-
-
 class PoseEstimator():
     def __init__(self, stride=64, conf_thres=0.25, iou_thres=0.65):
         self.stride = stride

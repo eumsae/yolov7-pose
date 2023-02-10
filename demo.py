@@ -1,10 +1,12 @@
 import os
+import time
 
 import cv2
 import numpy as np
 
-from utils.pose import PoseEstimator, EDGES
+from utils.pose import PoseEstimator
 from utils.sort import SortTracker
+from utils.visualization import draw_tracked_pose
 
 
 class PoseTracker():
@@ -17,10 +19,21 @@ class PoseTracker():
 
     def display_prediction(self, input_size=(960, 540)):
         cap = cv2.VideoCapture(self.video)
+
+        height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        font_org = (int(height * 0.02), int(height * 0.04))
+        font_face = cv2.FONT_HERSHEY_PLAIN
+        font_scale = height * 0.0015
+        font_color = (0, 255, 0)
+        font_thickness = 2
+
+        prev_time = 0
+
         while cap.isOpened():
-            exists, frame = cap.read()  # get frame image
+            exists, frame = cap.read()
             if not exists:
                 break
+
             preds = np.array(self.pose_estimator.estimate(frame, input_size))
             if preds.ndim == 2:
                 boxes = preds[:, :5]
@@ -28,12 +41,23 @@ class PoseTracker():
 
                 detection_map = self.sort_tracker.update(boxes)
                 for detection_i in detection_map.keys():
-                    bbox = boxes[detection_i, :4].astype(int)
-                    pose = poses[detection_i, :, :2].astype(int)
-
                     trk_id = detection_map[detection_i]
-                    self.draw_bbox(frame, bbox, trk_id)
-                    self.draw_pose(frame, pose, trk_id)
+                    bbox = boxes[detection_i]
+                    pose = poses[detection_i]
+                    draw_tracked_pose(frame, trk_id, bbox, pose)
+
+            curr_time = time.time()
+            real_fps = round(1 / (curr_time - prev_time), 2)
+            prev_time = curr_time
+
+            cv2.putText(
+                frame,
+                "FPS "+str(real_fps),
+                font_org,
+                font_face,
+                font_scale,
+                font_color,
+                font_thickness)
 
             cv2.imshow("result", frame)
             if cv2.waitKey(1) == ord('q'):
@@ -41,24 +65,8 @@ class PoseTracker():
         cv2.destroyAllWindows()
         cap.release()
 
-    def draw_bbox(self, mat, box, trk_id):
-        cv2.putText(mat, str(trk_id), (box[0], box[1]), cv2.FONT_HERSHEY_PLAIN, 1.5, (0, 0, 255), 2)
-        cv2.rectangle(mat, (box[0], box[1]), (box[2], box[3]), (0, 0, 255), 2)
-
-    def draw_pose(self, mat, pose, trk_id):
-        node_radius = 3
-        edge_thickness = 2
-
-        for i in range(len(pose)):
-            conn = EDGES[i]
-            for j in conn.keys():
-                color = conn[j]
-                cv2.line(mat, pose[i], pose[j], color, edge_thickness)
-        for kpt in pose:
-            cv2.circle(mat, kpt, node_radius, (0, 0, 255), -1)
-
 
 if __name__ == "__main__":
-    video = "/workspace/pytorch/yolov7-pose/samples/pedestrians.mp4"
+    video = "/workspace/pytorch/yolov7-pose/samples/abnormal4.mp4"
     pose_tracker = PoseTracker(video)
     pose_tracker.display_prediction()
