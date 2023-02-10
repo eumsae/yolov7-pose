@@ -57,7 +57,7 @@ def iou_batch(bb_test, bb_gt):
   h = np.maximum(0., yy2 - yy1)
   wh = w * h
   o = wh / ((bb_test[..., 2] - bb_test[..., 0]) * (bb_test[..., 3] - bb_test[..., 1])                                      
-    + (bb_gt[..., 2] - bb_gt[..., 0]) * (bb_gt[..., 3] - bb_gt[..., 1]) - wh)                                              
+    + (bb_gt[..., 2] - bb_gt[..., 0]) * (bb_gt[..., 3] - bb_gt[..., 1]) - wh)
   return(o)  
 
 
@@ -168,7 +168,7 @@ def associate_detections_to_trackers(detections,trackers,iou_threshold = 0.3):
       matched_indices = linear_assignment(-iou_matrix)
   else:
     matched_indices = np.empty(shape=(0,2))
-
+  
   unmatched_detections = []
   for d, det in enumerate(detections):
     if(d not in matched_indices[:,0]):
@@ -194,7 +194,7 @@ def associate_detections_to_trackers(detections,trackers,iou_threshold = 0.3):
   return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
 
 
-class SORT(object):
+class SortTracker(object):
   def __init__(self, max_age=1, min_hits=3, iou_threshold=0.3):
     """
     Sets key parameters for SORT
@@ -231,25 +231,40 @@ class SORT(object):
     matched, unmatched_dets, unmatched_trks = associate_detections_to_trackers(dets,trks, self.iou_threshold)
 
     # update matched trackers with assigned detections
+    # ===============
+    # @origin
+    #for m in matched:
+    #  self.trackers[m[1]].update(dets[m[0], :])
+    # ---------------
+    # @modified
+    matched_map = {}
     for m in matched:
+      det_i, trk_id = m[0], self.trackers[m[1]].id+1
+      matched_map[det_i] = trk_id
       self.trackers[m[1]].update(dets[m[0], :])
+    # ===============
 
     # create and initialise new trackers for unmatched detections
     for i in unmatched_dets:
         trk = KalmanBoxTracker(dets[i,:])
         self.trackers.append(trk)
+
     i = len(self.trackers)
     for trk in reversed(self.trackers):
         d = trk.get_state()[0]
-        if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
-          ret.append(np.concatenate((d,[trk.id+1])).reshape(1,-1)) # +1 as MOT benchmark requires positive
+
+        #if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
+        #  ret.append(np.concatenate((d,[trk.id+1])).reshape(1,-1)) # +1 as MOT benchmark requires positive
+
         i -= 1
         # remove dead tracklet
         if(trk.time_since_update > self.max_age):
           self.trackers.pop(i)
-    if(len(ret)>0):
-      return np.concatenate(ret)
-    return np.empty((0,5))
+
+    #if(len(ret)>0):
+    #  return np.concatenate(ret)
+    #return np.empty((0,5))
+    return matched_map
 
 def parse_args():
     """Parse input arguments."""
@@ -287,7 +302,7 @@ if __name__ == '__main__':
     os.makedirs('output')
   pattern = os.path.join(args.seq_path, phase, '*', 'det', 'det.txt')
   for seq_dets_fn in glob.glob(pattern):
-    mot_tracker = SORT(max_age=args.max_age, 
+    mot_tracker = SortTracker(max_age=args.max_age, 
                        min_hits=args.min_hits,
                        iou_threshold=args.iou_threshold) #create instance of the SORT tracker
     seq_dets = np.loadtxt(seq_dets_fn, delimiter=',')

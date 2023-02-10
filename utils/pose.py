@@ -23,9 +23,56 @@ if not os.path.exists(W6PT_PATH):
     print("\nDone.")
 
 
+COLORS = {
+    'red': (255, 0, 0),
+    'green': (0, 255, 0),
+    'blue': (0, 0, 255),
+    'magenta': (255, 0, 255),
+    'white': (255, 255, 255),
+    'orange': (255, 128, 0),
+    'azure': (0, 128, 255)}
+
+NODES = {
+    0: 'nose',
+    1: 'L_eye',
+    2: 'R_eye',
+    3: 'L_ear',
+    4: 'R_ear',
+    5: 'L_shoulder',
+    6: 'R_shoulder',
+    7: 'L_elbow',
+    8: 'R_elbow',
+    9: 'L_wrist',
+    10: 'R_wrist',
+    11: 'L_hip',
+    12: 'R_hip',
+    13: 'L_knee',
+    14: 'R_knee',
+    15: 'L_ankle',
+    16: 'R_ankle'}
+
+EDGES = {
+    0: {1: COLORS['green'], 2: COLORS['green']},
+    1: {3: COLORS['green']},
+    2: {4: COLORS['green']},
+    3: {},
+    4: {},
+    5: {6: COLORS['magenta'], 7: COLORS['red'], 11: COLORS['magenta']},
+    6: {8: COLORS['orange'], 12: COLORS['magenta']},
+    7: {9: COLORS['red']},
+    8: {10: COLORS['orange']},
+    9: {},
+    10: {},
+    11: {12: COLORS['magenta'], 13: COLORS['blue']},
+    12: {14: COLORS['azure']},
+    13: {15: COLORS['blue']},
+    14: {16: COLORS['azure']},
+    15: {},
+    16: {}}
+
+
 class PoseEstimator():
-    def __init__(self, dst_size=(960, 540), stride=64, conf_thres=0.25, iou_thres=0.65):
-        self.dst_size = dst_size
+    def __init__(self, stride=64, conf_thres=0.25, iou_thres=0.65):
         self.stride = stride
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
@@ -41,10 +88,9 @@ class PoseEstimator():
         self.model.float().eval()
         if torch.cuda.is_available():
             self.model.half().to(self.device)
-    
-    def estimate(self, mat):
-        #mat, info = resize_keeping_aspect_ratio(mat, mat.shape[:2][::-1], self.stride)
-        mat, info = resize_keeping_aspect_ratio(mat, self.dst_size, self.stride)
+
+    def estimate(self, mat, input_size=(960, 540)):
+        mat, info = resize_keeping_aspect_ratio(mat, input_size, self.stride)
         self.resize_factors, self.diff_origin = info
 
         tsr = transforms.ToTensor()(mat)
@@ -95,14 +141,14 @@ def fit_size_to_stride(src_size, stride):
     
     width, height = src_size
 
-    dst_size = fit(width), fit(height)
+    input_size = fit(width), fit(height)
 
-    return dst_size
+    return input_size
 
 
-def calc_resize_factors(src_size, dst_size):
+def calc_resize_factors(src_size, input_size):
     w1, h1 = src_size
-    w2, h2 = dst_size
+    w2, h2 = input_size
 
     rw = w2 / w1  # ratio
     rh = h2 / h1
@@ -112,9 +158,9 @@ def calc_resize_factors(src_size, dst_size):
     return resize_factors
 
 
-def calc_gap(src_size, dst_size):
+def calc_gap(src_size, input_size):
     w1, h1 = src_size
-    w2, h2 = dst_size
+    w2, h2 = input_size
     if w1 > w2 or h1 > h2:
         msg = "Width and height of the dst size must be " \
             + "greater than that of the src size."
@@ -147,24 +193,24 @@ def add_border(mat, thickness, rgb=(0,0,0)):
 
 def resize(mat, resize_factors):
     src_size = np.array(mat.shape[:2][::-1])
-    dst_size = np.round(src_size * resize_factors).astype(int)
+    input_size = np.round(src_size * resize_factors).astype(int)
 
-    resized_mat = cv2.resize(mat, dst_size)
+    resized_mat = cv2.resize(mat, input_size)
 
     return resized_mat
 
 
-def resize_keeping_aspect_ratio(mat, dst_size, stride=None):
+def resize_keeping_aspect_ratio(mat, input_size, stride=None):
     if stride is not None:
-        dst_size = fit_size_to_stride(dst_size, stride)
+        input_size = fit_size_to_stride(input_size, stride)
 
     src_size = mat.shape[:2][::-1]  # (width, height)
-    resize_factors = calc_resize_factors(src_size, dst_size)
+    resize_factors = calc_resize_factors(src_size, input_size)
     resize_factors = (min(resize_factors),) * 2  # (min, min)
     resized_mat = resize(mat, resize_factors)
     
     src_size = resized_mat.shape[:2][::-1]  # (width, height)
-    gap = calc_gap(src_size, dst_size)
+    gap = calc_gap(src_size, input_size)
     diff_origin = gap[2], gap[0]  # (top, left)
     resized_mat = add_border(resized_mat, gap)
 
